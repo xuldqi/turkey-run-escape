@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gobble Run — The Great Turkey Escape</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game-canvas" width="1280" height="720"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div class="hud-item"><label>Score</label><strong id="hud-score">0</strong></div>
+      <div class="hud-item"><label>Distance</label><strong id="hud-dist">0 m</strong></div>
+      <div class="hud-item"><label>Corn</label><strong id="hud-corn">🌽 0</strong></div>
+    </div>
+    <div class="hud-center">
+      <div id="hud-stage">The Farmyard</div>
+      <div id="progress"><div id="progress-fill"></div><span id="progress-label">🏃 0 m → 🌲 Wild Woods 1,500 m</span></div>
+      <div id="farmer-meter">
+        <div id="farmer-fill"></div>
+        <span id="farmer-text">Farmer 15 m behind</span>
+      </div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-item"><label>Feathers</label><strong id="hud-feathers">🪶🪶🪶</strong></div>
+      <div class="hud-buttons">
+        <button id="btn-pause" title="Pause (P)">⏸</button>
+        <button id="btn-sound" title="Sound (M)">🔊</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="banner" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
+
+  <section id="screen-menu" class="screen">
+    <h1>GOBBLE RUN</h1>
+    <p class="tagline">The Great Turkey Escape</p>
+    <p class="story">Thanksgiving is Thursday. The farmer has sharpened the carving knife,
+      preheated the oven and written <em>one</em> name on the menu. Gobbles McFeather
+      has other plans: 1,500 metres of farmyard, cornfield and kitchen yard stand
+      between her and the Wild Woods. Run!</p>
+    <div class="howto">
+      <div><span class="key">Space / ↑ / Click</span> Jump — press again mid-air to flap</div>
+      <div><span class="key">↓ / S</span> Duck under the knife racks — or drop fast</div>
+      <div><span class="key">P</span> Pause &nbsp;·&nbsp; <span class="key">M</span> Mute</div>
+      <div class="tips">Grab corn 🌽 for points. Graze an obstacle for a near-miss bonus.
+        Hide in a bush 🌿 to shake the farmer off your tail. Three feathers is all you get —
+        and if his hands reach you, it's dinner.</div>
+    </div>
+    <button id="btn-start" class="big-btn">Start the escape</button>
+    <p id="menu-best"></p>
+  </section>
+
+  <section id="screen-pause" class="screen hidden">
+    <h2>Paused</h2>
+    <p class="story">Gobbles catches her breath behind a hay bale…</p>
+    <button id="btn-resume" class="big-btn">Keep running</button>
+    <button id="btn-restart" class="ghost-btn">Restart run</button>
+    <button id="btn-quit" class="ghost-btn">Back to menu</button>
+  </section>
+
+  <section id="screen-over" class="screen hidden">
+    <h2 id="over-title">CAUGHT!</h2>
+    <p id="over-sub" class="story"></p>
+    <div id="over-stats"></div>
+    <button id="btn-again" class="big-btn">Run again</button>
+    <button id="btn-menu2" class="ghost-btn">Back to menu</button>
+  </section>
+
+  <div id="touch-controls">
+    <button id="btn-duck">▼ DUCK</button>
+    <button id="btn-jump">▲ JUMP</button>
+  </div>
+</div>
+
+<script src="audio.js"></script>
+<script src="world.js"></script>
+<script src="sprites.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

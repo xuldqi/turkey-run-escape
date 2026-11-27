@@ -1,0 +1,1 @@
+{"description":"Gobble Run — a Thanksgiving escape runner for the browser: dodge ovens and carving knives, grab corn, and outrun the farmer to the Wild Woods.","engines":{"node":">=22.18"},"license":"MIT","name":"turkey-run-escape","private":true,"scripts":{"build":"node main.ts","serve":"node serve.ts"},"type":"module","version":"1.0.0"}
