@@ -19,6 +19,14 @@ globalThis.TurkeySprites = (() => {
   }
 
   // ---------------------------------------------------------- backdrop ---
+  // Deterministic 0..1 hash for a scenery cell, so every layer of the
+  // backdrop is a pure function of (seed, cell): no stored state, and the
+  // same frame always draws the same farm.
+  function hash01(seed, salt, cell) {
+    const rng = TurkeyWorld.mulberry32((seed ^ Math.imul(cell + 1, 0x9e3779b1) ^ Math.imul(salt + 1, 0x85ebca6b)) >>> 0);
+    return rng();
+  }
+
   function drawBackground(ctx, o) {
     const { stage, scrollPx, w, groundY, seed, timeS } = o;
     const sky = ctx.createLinearGradient(0, 0, 0, groundY);
@@ -32,9 +40,13 @@ globalThis.TurkeySprites = (() => {
     ellipse(ctx, sunX, 108, 46, 46, stage.sun);
     ellipse(ctx, sunX, 108, 62, 62, "rgba(255,217,77,0.18)");
 
-    // Two parallax hill layers, drawn from deterministic 40 m cells.
-    drawHillLayer(ctx, o, 0.06, groundY - 120, 130, stage.farHill, seed, 0);
-    drawHillLayer(ctx, o, 0.16, groundY - 56, 84, stage.nearHill, seed, 7);
+    drawClouds(ctx, o);
+    // Two rolling ridge layers, far then near (trees ride the near one).
+    drawRidge(ctx, o, 0.05, groundY - 96, 74, stage.farHill, 11, false);
+    drawRidge(ctx, o, 0.14, groundY - 40, 58, stage.nearHill, 23, true);
+    // Mid-ground dressing at half parallax: fences, corn rows, crates —
+    // whatever belongs to the stage Gobbles is crossing.
+    drawMidLayer(ctx, o);
 
     if (stage.id === "farmyard") drawBarn(ctx, w * 0.16 - (scrollPx * 0.05) % (w + 500), groundY - 118);
     if (stage.id === "kitchen") drawFarmhouse(ctx, w * 0.7 - (scrollPx * 0.05) % (w + 600), groundY - 150);
@@ -51,6 +63,7 @@ globalThis.TurkeySprites = (() => {
       ctx.fillRect(x, groundY + 44, 22, 5);
       ctx.fillRect(x + 18, groundY + 82, 26, 5);
     }
+    drawGroundDetail(ctx, o);
     // Drifting leaves for autumn feel.
     ctx.fillStyle = "rgba(214,120,40,0.5)";
     for (let i = 0; i < 7; i++) {
@@ -62,30 +75,352 @@ globalThis.TurkeySprites = (() => {
       ctx.fillRect(-5, -2, 10, 4);
       ctx.restore();
     }
+    drawForegroundStrip(ctx, o);
   }
 
-  function drawHillLayer(ctx, o, factor, baseY, amp, color, seed, salt) {
-    const { scrollPx, w } = o;
-    const cellPx = 40 * 24; // one scenery cell = 40 m
-    const shift = scrollPx * factor;
+  function drawClouds(ctx, o) {
+    const { scrollPx, w, seed } = o;
+    const cellPx = 620;
+    const shift = scrollPx * 0.03;
     const firstCell = Math.floor(shift / cellPx);
-    ctx.fillStyle = color;
+    ctx.fillStyle = "rgba(255,252,246,0.72)";
     for (let c = firstCell - 1; c < firstCell + Math.ceil(w / cellPx) + 2; c++) {
-      const items = TurkeyWorld.cellScenery(seed + salt * 131, c);
+      const x = c * cellPx - shift + hash01(seed, 41, c) * 300;
+      const y = 36 + hash01(seed, 43, c) * 120;
+      const s = 0.7 + hash01(seed, 47, c) * 0.8;
+      ellipse(ctx, x, y, 52 * s, 15 * s, "rgba(255,252,246,0.72)");
+      ellipse(ctx, x - 30 * s, y + 5 * s, 34 * s, 11 * s, "rgba(255,252,246,0.6)");
+      ellipse(ctx, x + 34 * s, y + 4 * s, 38 * s, 12 * s, "rgba(255,252,246,0.65)");
+    }
+  }
+
+  // Height of a ridge at world position wx: smooth value noise over
+  // 300 px cells, so the hills roll instead of marching as domes.
+  function ridgeY(seed, salt, wx, baseY, amp) {
+    const cellW = 300;
+    const c = Math.floor(wx / cellW);
+    const t = (wx - c * cellW) / cellW;
+    const s = t * t * (3 - 2 * t);
+    const h0 = hash01(seed, salt, c);
+    const h1 = hash01(seed, salt, c + 1);
+    return baseY - amp * (0.30 + 0.70 * (h0 + (h1 - h0) * s));
+  }
+
+  function drawRidge(ctx, o, factor, baseY, amp, color, salt, withTrees) {
+    const { scrollPx, w, groundY, seed, stage } = o;
+    const shift = scrollPx * factor;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-4, groundY + 2);
+    for (let sx = -4; sx <= w + 30; sx += 30) {
+      ctx.lineTo(sx, ridgeY(seed, salt, sx + shift, baseY, amp));
+    }
+    ctx.lineTo(w + 30, groundY + 2);
+    ctx.closePath();
+    ctx.fill();
+    if (!withTrees) return;
+    // Round autumn trees standing on the near ridge.
+    const cellW = 260;
+    const firstCell = Math.floor(shift / cellW);
+    for (let c = firstCell - 1; c < firstCell + Math.ceil(w / cellW) + 2; c++) {
+      if (hash01(seed, salt + 5, c) < 0.45) continue;
+      const wx = c * cellW + hash01(seed, salt + 6, c) * 150;
+      const x = wx - shift;
+      const y = ridgeY(seed, salt, wx, baseY, amp);
+      const s = 0.8 + hash01(seed, salt + 7, c) * 0.7;
+      ctx.fillStyle = "#6e4525";
+      ctx.fillRect(x - 3 * s, y - 4, 6 * s, 16 * s);
+      const leaf = ["#c96f2e", "#d9a441", "#a8502a"][Math.abs(c) % 3];
+      ellipse(ctx, x, y - 22 * s, 20 * s, 23 * s, leaf);
+      ellipse(ctx, x - 13 * s, y - 12 * s, 13 * s, 14 * s, leaf);
+      if (stage.id === "kitchen") ellipse(ctx, x + 12 * s, y - 14 * s, 12 * s, 13 * s, "#59364f");
+    }
+  }
+
+  // Mid-ground props, one 40 m cell at a time, chosen by stage. They sit
+  // on the ground line behind the track, at half the ground's scroll rate.
+  function drawMidLayer(ctx, o) {
+    const { stage, scrollPx, w, groundY, seed, timeS } = o;
+    const cellPx = 40 * 24;
+    const shift = scrollPx * 0.45;
+    const firstCell = Math.floor(shift / cellPx);
+    for (let c = firstCell - 1; c < firstCell + Math.ceil(w / cellPx) + 2; c++) {
+      const items = TurkeyWorld.cellScenery(seed + 977, c);
       const cellX = c * cellPx - shift;
       for (const it of items) {
         const x = cellX + it.at * cellPx;
-        const r = amp * it.size;
-        ctx.beginPath();
-        ctx.arc(x, baseY + r * 0.55, r, Math.PI, 0);
-        ctx.fill();
-        if (it.kind === 1) {
-          // A round autumn tree on the hill.
-          ctx.fillRect(x - 3, baseY - r * 0.2, 6, r * 0.5);
-          ellipse(ctx, x, baseY - r * 0.45, r * 0.34, r * 0.4, ["#c96f2e", "#d9a441", "#a8502a"][c % 3 < 0 ? 0 : Math.abs(c) % 3]);
-        }
+        if (x < -240 || x > w + 240) continue;
+        if (stage.id === "farmyard") drawFarmProp(ctx, x, groundY, it, timeS);
+        else if (stage.id === "cornfield") drawCornProp(ctx, x, groundY, it, timeS);
+        else drawKitchenProp(ctx, x, groundY, it, timeS);
       }
     }
+  }
+
+  function drawFarmProp(ctx, x, groundY, it, timeS) {
+    if (it.kind === 0) {
+      // A run of split-rail fence.
+      ctx.fillStyle = "#8a5a33";
+      for (let i = 0; i < 4; i++) ctx.fillRect(x + i * 52, groundY - 44, 7, 44);
+      ctx.fillStyle = "#a8743a";
+      ctx.fillRect(x - 6, groundY - 40, 218, 8);
+      ctx.fillRect(x - 6, groundY - 20, 218, 8);
+    } else if (it.kind === 1) {
+      // Haystack on a pole.
+      ctx.fillStyle = "#6e4525";
+      ctx.fillRect(x - 3, groundY - 74, 6, 74);
+      ctx.fillStyle = "#d9a441";
+      ctx.beginPath();
+      ctx.moveTo(x - 42, groundY - 8);
+      ctx.quadraticCurveTo(x, groundY - 108, x + 42, groundY - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e8bc58";
+      ctx.beginPath();
+      ctx.moveTo(x - 26, groundY - 8);
+      ctx.quadraticCurveTo(x, groundY - 78, x + 26, groundY - 8);
+      ctx.closePath();
+      ctx.fill();
+    } else if (it.kind === 2 && it.size > 1.05) {
+      drawWindmill(ctx, x, groundY, timeS);
+    } else {
+      drawBush(ctx, { x, groundY });
+    }
+  }
+
+  function drawWindmill(ctx, x, groundY, timeS) {
+    ctx.strokeStyle = "rgba(74,52,36,0.85)";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(x - 26, groundY);
+    ctx.lineTo(x, groundY - 148);
+    ctx.lineTo(x + 26, groundY);
+    ctx.moveTo(x - 15, groundY - 62);
+    ctx.lineTo(x + 15, groundY - 62);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(x, groundY - 148);
+    ctx.rotate(timeS * 0.35);
+    ctx.fillStyle = "rgba(233,220,196,0.9)";
+    for (let i = 0; i < 4; i++) {
+      ctx.save();
+      ctx.rotate((i * Math.PI) / 2);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(9, -12);
+      ctx.lineTo(9, -52);
+      ctx.lineTo(-3, -52);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    ellipse(ctx, x, groundY - 148, 6, 6, "#4a3424");
+  }
+
+  function drawCornProp(ctx, x, groundY, it, timeS) {
+    if (it.kind === 3) {
+      drawScarecrow(ctx, x, groundY, timeS);
+      return;
+    }
+    // A cluster of tall corn stalks, swaying a little.
+    const n = 3 + (it.kind % 3);
+    for (let i = 0; i < n; i++) {
+      const sx = x + (i - (n - 1) / 2) * 17 + Math.sin(timeS * 0.9 + x + i) * 2;
+      const h = 118 + ((i * 37) % 40);
+      ctx.strokeStyle = "#7a8f2e";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sx, groundY);
+      ctx.quadraticCurveTo(sx + 3, groundY - h * 0.6, sx + Math.sin(timeS * 0.9 + i * 1.7) * 5, groundY - h);
+      ctx.stroke();
+      // Leaves.
+      ctx.strokeStyle = "#8fae3a";
+      ctx.lineWidth = 4;
+      for (const f of [0.35, 0.55, 0.75]) {
+        const ly = groundY - h * f;
+        const dir = (i + Math.floor(f * 10)) % 2 === 0 ? 1 : -1;
+        ctx.beginPath();
+        ctx.moveTo(sx, ly);
+        ctx.quadraticCurveTo(sx + dir * 14, ly - 6, sx + dir * 22, ly + 7);
+        ctx.stroke();
+      }
+      // A ripe cob.
+      ellipse(ctx, sx + 6, groundY - h * 0.62, 5.5, 10, "#f2b93b");
+    }
+  }
+
+  function drawScarecrow(ctx, x, groundY, timeS) {
+    const sway = Math.sin(timeS * 1.1 + x) * 2;
+    ctx.fillStyle = "#6e4525";
+    ctx.fillRect(x - 4, groundY - 128, 8, 128);
+    ctx.fillRect(x - 46, groundY - 104, 92, 7);
+    // Head: a sack with a stitched grin, straw hat on top.
+    ellipse(ctx, x + sway, groundY - 122, 15, 14, "#e3cf9f");
+    ctx.strokeStyle = "#4a3424";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(x + sway, groundY - 118, 7, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    ellipse(ctx, x + sway - 5, groundY - 126, 1.8, 2.4, "#4a3424");
+    ellipse(ctx, x + sway + 5, groundY - 126, 1.8, 2.4, "#4a3424");
+    ctx.fillStyle = "#e3b959";
+    ctx.fillRect(x + sway - 19, groundY - 134, 38, 6);
+    ctx.beginPath();
+    ctx.ellipse(x + sway, groundY - 140, 11, 6, 0, Math.PI, 0);
+    ctx.fill();
+    // Plaid body: a hanging triangle of shirt.
+    ctx.fillStyle = "#b03a2e";
+    ctx.beginPath();
+    ctx.moveTo(x + sway, groundY - 108);
+    ctx.lineTo(x - 20, groundY - 34);
+    ctx.lineTo(x + 20, groundY - 34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,220,150,0.5)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 12, groundY - 66);
+    ctx.lineTo(x + 13, groundY - 66);
+    ctx.moveTo(x, groundY - 106);
+    ctx.lineTo(x, groundY - 36);
+    ctx.stroke();
+    // Straw hands.
+    ctx.strokeStyle = "#e3cf9f";
+    ctx.lineWidth = 3;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      for (let i = -2; i <= 2; i++) {
+        ctx.moveTo(x + dir * 44, groundY - 101);
+        ctx.lineTo(x + dir * (52 + Math.abs(i) * 2), groundY - 101 + i * 4);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function drawKitchenProp(ctx, x, groundY, it, timeS) {
+    if (it.kind === 0) {
+      // A stack of crates.
+      drawCrate(ctx, x - 30, groundY, 58);
+      drawCrate(ctx, x + 32, groundY, 58);
+      drawCrate(ctx, x, groundY - 56, 52);
+    } else if (it.kind === 1) {
+      // A clothesline: supper guests' laundry, swaying.
+      ctx.fillStyle = "#6e4525";
+      ctx.fillRect(x - 78, groundY - 118, 7, 118);
+      ctx.fillRect(x + 72, groundY - 118, 7, 118);
+      ctx.strokeStyle = "rgba(60,40,24,0.8)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x - 75, groundY - 114);
+      ctx.quadraticCurveTo(x, groundY - 92, x + 75, groundY - 114);
+      ctx.stroke();
+      const cloth = ["#e8dcc4", "#b03a2e", "#7a9cc4"];
+      for (let i = 0; i < 3; i++) {
+        const cx = x - 48 + i * 36;
+        const sway = Math.sin(timeS * 1.6 + i * 2.1 + x) * 3;
+        ctx.fillStyle = cloth[i];
+        ctx.beginPath();
+        ctx.moveTo(cx - 13, groundY - 106 + i * 3);
+        ctx.lineTo(cx + 13, groundY - 106 + i * 3);
+        ctx.lineTo(cx + 13 + sway, groundY - 66 + i * 3);
+        ctx.lineTo(cx - 13 + sway, groundY - 66 + i * 3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (it.kind === 2) {
+      // Chopped wood pile: somebody is planning a fire.
+      ctx.fillStyle = "#8a5a33";
+      for (const [dx, dy] of [[-30, 0], [0, 0], [30, 0], [-15, -17], [15, -17], [0, -34]]) {
+        ctx.beginPath();
+        ctx.ellipse(x + dx, groundY - 9 + dy, 16, 9, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "#c99a5e";
+        ctx.beginPath();
+        ctx.ellipse(x + dx - 13, groundY - 9 + dy, 4.5, 7, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "#8a5a33";
+      }
+    } else {
+      drawBush(ctx, { x, groundY });
+    }
+  }
+
+  function drawCrate(ctx, x, baseY, s) {
+    ctx.fillStyle = "#b5854a";
+    ctx.fillRect(x - s / 2, baseY - s, s, s);
+    ctx.strokeStyle = "#8a5a33";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x - s / 2 + 2, baseY - s + 2, s - 4, s - 4);
+    ctx.beginPath();
+    ctx.moveTo(x - s / 2 + 3, baseY - s + 3);
+    ctx.lineTo(x + s / 2 - 3, baseY - 3);
+    ctx.moveTo(x + s / 2 - 3, baseY - s + 3);
+    ctx.lineTo(x - s / 2 + 3, baseY - 3);
+    ctx.stroke();
+  }
+
+  // Small life on the ground band itself: grass tufts, stones, flowers
+  // and fallen leaves in 96 px cells scrolling with the world.
+  function drawGroundDetail(ctx, o) {
+    const { stage, scrollPx, w, groundY, seed } = o;
+    const cellPx = 96;
+    const firstCell = Math.floor(scrollPx / cellPx);
+    for (let c = firstCell - 1; c < firstCell + Math.ceil(w / cellPx) + 2; c++) {
+      const x = c * cellPx - scrollPx + hash01(seed, 61, c) * 60;
+      const y = groundY + 22 + hash01(seed, 63, c) * 66;
+      const kind = Math.floor(hash01(seed, 67, c) * 4);
+      if (kind === 0) {
+        ctx.strokeStyle = stage.grass;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        for (let b = -2; b <= 2; b++) {
+          ctx.moveTo(x + b * 4, y + 8);
+          ctx.quadraticCurveTo(x + b * 5, y, x + b * 7, y - 7 - Math.abs(b));
+        }
+        ctx.stroke();
+      } else if (kind === 1) {
+        ellipse(ctx, x, y, 7, 4, "rgba(70,50,35,0.5)");
+        ellipse(ctx, x + 9, y + 3, 4.5, 3, "rgba(70,50,35,0.4)");
+      } else if (kind === 2 && stage.id === "farmyard") {
+        ctx.strokeStyle = "#5d8a3f";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 6);
+        ctx.lineTo(x, y - 6);
+        ctx.stroke();
+        ellipse(ctx, x, y - 8, 3.2, 3.2, "#fff3f8");
+        ellipse(ctx, x - 4, y - 5, 2.4, 2.4, "#ffd94d");
+      } else {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(hash01(seed, 71, c) * 3);
+        ctx.fillStyle = "rgba(214,120,40,0.55)";
+        ctx.fillRect(-6, -2.5, 12, 5);
+        ctx.restore();
+      }
+    }
+  }
+
+  // A dark fringe of grass at the very bottom edge, scrolling a touch
+  // faster than the world: cheap speed you can feel.
+  function drawForegroundStrip(ctx, o) {
+    const { scrollPx, w, h, seed } = o;
+    const cellPx = 54;
+    const shift = scrollPx * 1.3;
+    const firstCell = Math.floor(shift / cellPx);
+    ctx.strokeStyle = "rgba(43,26,12,0.6)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let c = firstCell - 1; c < firstCell + Math.ceil(w / cellPx) + 2; c++) {
+      const x = c * cellPx - shift + hash01(seed, 83, c) * 30;
+      const bh = 13 + hash01(seed, 89, c) * 15;
+      for (let b = -1; b <= 1; b++) {
+        ctx.moveTo(x + b * 5, h + 2);
+        ctx.quadraticCurveTo(x + b * 6, h - bh * 0.6, x + b * 9, h - bh);
+      }
+    }
+    ctx.stroke();
   }
 
   function drawBarn(ctx, x, baseY) {
@@ -142,7 +477,9 @@ globalThis.TurkeySprites = (() => {
   function drawTurkey(ctx, o) {
     const { x, feetY, phase, duck, air, invincible, scared } = o;
     if (invincible && Math.floor(performance.now() / 90) % 2 === 0) ctx.globalAlpha = 0.45;
-    const squash = duck ? 0.62 : 1;
+    // `stretch` is the squash-and-stretch factor from game.js: >1 while
+    // rising fast, <1 for a beat after landing.
+    const squash = (duck ? 0.62 : 1) * (o.stretch || 1);
     const bodyY = feetY - 34 * squash;
     ctx.save();
     ctx.translate(x, 0);
@@ -215,9 +552,9 @@ globalThis.TurkeySprites = (() => {
     ctx.lineTo(headX + 10, headY + 5);
     ctx.closePath();
     ctx.fill();
-    // Eye: wide when the farmer is close.
+    // Eye: wide when the farmer is close, with a glint either way.
     ellipse(ctx, headX + 3, headY - 3, scared ? 4.4 : 3.2, scared ? 4.4 : 3.2, "#221a14");
-    if (scared) ellipse(ctx, headX + 4.4, headY - 4.4, 1.4, 1.4, "#ffffff");
+    ellipse(ctx, headX + 4.2, headY - 4.2, scared ? 1.4 : 1.1, scared ? 1.4 : 1.1, "#ffffff");
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -302,8 +639,22 @@ globalThis.TurkeySprites = (() => {
   }
 
   // --------------------------------------------------------- obstacles ---
+  function drawShadow(ctx, x, groundY, rx, alpha) {
+    ctx.fillStyle = `rgba(58,32,12,${alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY - 2, rx, 5.5, 0, 0, TAU);
+    ctx.fill();
+  }
+
   function drawObstacle(ctx, o) {
     const { type, x, groundY, timeS } = o;
+    // Every standing obstacle gets a soft contact shadow.
+    if (type === "kniferack" || type === "swingknife" || type === "branch") {
+      drawShadow(ctx, x - 44, groundY, 12, 0.22);
+      drawShadow(ctx, x + 44, groundY, 12, 0.22);
+    } else {
+      drawShadow(ctx, x, groundY, (TurkeyWorld.OBSTACLES[type] ? TurkeyWorld.OBSTACLES[type].w : 50) * 0.55, 0.25);
+    }
     switch (type) {
       case "haybale": {
         ellipse(ctx, x, groundY - 24, 30, 24, "#d9a441");
@@ -342,6 +693,62 @@ globalThis.TurkeySprites = (() => {
         ctx.stroke();
         break;
       }
+      case "barrel": {
+        // A stout wooden barrel, hoops and all. Mind the bounce.
+        ctx.fillStyle = "#9a6a38";
+        ctx.beginPath();
+        ctx.moveTo(x - 24, groundY - 60);
+        ctx.quadraticCurveTo(x - 31, groundY - 31, x - 24, groundY - 2);
+        ctx.lineTo(x + 24, groundY - 2);
+        ctx.quadraticCurveTo(x + 31, groundY - 31, x + 24, groundY - 60);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#b5854a";
+        ctx.beginPath();
+        ctx.moveTo(x - 10, groundY - 60);
+        ctx.quadraticCurveTo(x - 14, groundY - 31, x - 10, groundY - 2);
+        ctx.lineTo(x + 10, groundY - 2);
+        ctx.quadraticCurveTo(x + 14, groundY - 31, x + 10, groundY - 60);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#4c4c55";
+        ctx.fillRect(x - 28, groundY - 48, 56, 6);
+        ctx.fillRect(x - 28, groundY - 18, 56, 6);
+        ellipse(ctx, x, groundY - 60, 24, 5.5, "#c99a5e");
+        break;
+      }
+      case "branch": {
+        // A low oak limb reaching over the path, leaves dangling into
+        // the duck band. A red apple for the brave.
+        ctx.strokeStyle = "#6e4525";
+        ctx.lineWidth = 13;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x - 78, groundY - 148);
+        ctx.quadraticCurveTo(x, groundY - 122, x + 82, groundY - 138);
+        ctx.stroke();
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(x - 20, groundY - 131);
+        ctx.quadraticCurveTo(x - 6, groundY - 106, x + 8, groundY - 96);
+        ctx.stroke();
+        const leafCols = ["#c96f2e", "#d9a441", "#a8502a", "#8fae3a"];
+        for (let i = 0; i < 9; i++) {
+          const lx = x - 66 + i * 16 + Math.sin(timeS * 1.3 + i * 2.4 + x) * 2;
+          const ly = groundY - 128 + Math.sin(i * 1.9) * 12 + (i % 3) * 9;
+          ellipse(ctx, lx, ly, 11, 8, leafCols[i % 4]);
+        }
+        // Hanging leaves dipping lowest, right where a tall turkey's
+        // head would be.
+        for (const dx of [-30, 2, 34]) {
+          const sway = Math.sin(timeS * 1.7 + dx) * 3;
+          ellipse(ctx, x + dx + sway, groundY - 66, 9, 13, "#b5713d");
+          ellipse(ctx, x + dx + sway, groundY - 82, 7, 10, "#c96f2e");
+        }
+        ellipse(ctx, x + 18, groundY - 88, 6.5, 7.5, "#c23b2e");
+        ellipse(ctx, x + 16, groundY - 91, 2.2, 2.6, "#ff9d8a");
+        break;
+      }
       case "oven": {
         roundRect(ctx, x - 44, groundY - 98, 88, 98, 8, "#3f454e");
         roundRect(ctx, x - 44, groundY - 98, 88, 14, 6, "#59616c");
@@ -360,6 +767,16 @@ globalThis.TurkeySprites = (() => {
         for (let i = 0; i < 4; i++) ellipse(ctx, x - 24 + i * 16, groundY - 92, 3.4, 3.4, "#20242a");
         ctx.fillStyle = "#59616c";
         ctx.fillRect(x - 8, groundY - 118, 16, 22); // stovepipe
+        // Smoke puffs curling out of the pipe, on a steady cycle.
+        for (let i = 0; i < 3; i++) {
+          const age = (timeS * 0.45 + i / 3 + (x % 97) * 0.01) % 1;
+          const px = x + Math.sin(age * 5 + x) * 6 + age * 16;
+          const py = groundY - 126 - age * 52;
+          ctx.fillStyle = `rgba(235,232,228,${0.32 * (1 - age)})`;
+          ctx.beginPath();
+          ctx.ellipse(px, py, 6 + age * 11, 5 + age * 8, 0, 0, TAU);
+          ctx.fill();
+        }
         break;
       }
       case "kniferack": {
@@ -508,5 +925,5 @@ globalThis.TurkeySprites = (() => {
     ctx.restore();
   }
 
-  return { drawBackground, drawTurkey, drawFarmer, drawObstacle, drawCorn, drawBush, drawWoodsGate, drawFeatherPuff };
+  return { drawBackground, drawTurkey, drawFarmer, drawObstacle, drawCorn, drawBush, drawWoodsGate, drawFeatherPuff, drawShadow };
 })();

@@ -85,6 +85,9 @@
     dipT: 0,
     runPhase: 0,
     farmerPhase: 0,
+    landT: 0,
+    shakeT: 0,
+    stepIdx: 0,
     timeS: 0,
     runTimeS: 0,
     overT: 0,
@@ -130,6 +133,9 @@
     state.hiddenT = 0;
     state.invincibleT = 0;
     state.dipT = 0;
+    state.landT = 0;
+    state.shakeT = 0;
+    state.stepIdx = 0;
     state.runTimeS = 0;
     state.overT = 0;
     state.stageId = "farmyard";
@@ -149,6 +155,24 @@
         vy: Math.sin(a) * v - 40,
         life: 0,
         maxLife: 0.5 + Math.random() * 0.5,
+      });
+    }
+  }
+
+  function spawnConfetti() {
+    const colors = ["#e2543e", "#f2a93b", "#ffd94d", "#7fb069", "#f7e8c9", "#c96f2e"];
+    for (let i = 0; i < 54; i++) {
+      state.particles.push({
+        kind: "confetti",
+        x: TURKEY_X - 40 + Math.random() * 320,
+        y: GROUND_Y - 150 - Math.random() * 190,
+        vx: (Math.random() - 0.5) * 60,
+        vy: 10 + Math.random() * 50,
+        life: 0,
+        maxLife: 1.8 + Math.random() * 1.6,
+        color: colors[i % colors.length],
+        rot: Math.random() * Math.PI,
+        rotV: (Math.random() - 0.5) * 9,
       });
     }
   }
@@ -201,6 +225,7 @@
     if (escaped) {
       state.endBonus = 500 + state.feathers * 100;
       audio.escaped();
+      spawnConfetti();
     } else {
       audio.gobble();
       audio.caught();
@@ -234,6 +259,7 @@
     state.feathers -= 1;
     state.invincibleT = 1.6;
     state.dipT = 0.7;
+    state.shakeT = 0.3;
     state.gapM = Math.max(0, state.gapM - 5.5);
     state.surgeT = 1.2;
     audio.thud();
@@ -258,10 +284,19 @@
         state.py = 0;
         state.vy = 0;
         state.jumps = 0;
+        state.landT = 0.13;
         spawnParticles("dust", TURKEY_X - 10, GROUND_Y - 2, 3, 40);
       }
     }
+    if (state.landT > 0) state.landT -= dt;
+    if (state.shakeT > 0) state.shakeT -= dt;
     state.runPhase += dt * effSpeed * 2.4;
+    // Footfalls: a soft step each time the run cycle crosses a beat.
+    const stepIdx = Math.floor(state.runPhase / Math.PI);
+    if (stepIdx !== state.stepIdx) {
+      state.stepIdx = stepIdx;
+      if (state.py === 0) audio.step();
+    }
     state.farmerPhase += dt * effSpeed * (state.gapM < 6 ? 3.4 : 2.6);
     if (state.invincibleT > 0) state.invincibleT -= dt;
 
@@ -384,6 +419,15 @@
   function updateParticles(dt) {
     for (const p of state.particles) {
       p.life += dt;
+      if (p.kind === "confetti") {
+        // Confetti flutters: slow terminal fall, sideways sway, spin.
+        p.vy = Math.min(58, p.vy + 26 * dt);
+        p.vx *= Math.max(0, 1 - 1.6 * dt);
+        p.x += (p.vx + Math.sin(p.life * 9 + p.rot) * 26) * dt;
+        p.y += p.vy * dt;
+        p.rot += p.rotV * dt;
+        continue;
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.vy += (p.kind === "feather" ? 60 : 160) * dt;
@@ -408,12 +452,17 @@
     const gapPct = Math.max(0, Math.min(100, (state.gapM / 20) * 100));
     farmerFillEl.style.width = `${gapPct}%`;
     farmerFillEl.classList.toggle("danger", state.gapM < 6);
-    setText(farmerTextEl, "farmer", state.gapM >= 20 ? "Farmer lost you… for now" : `Farmer ${state.gapM.toFixed(0)} m behind`);
+    setText(farmerTextEl, "farmer", state.hiddenT > 0 ? "Hidden in a bush! 🌿" : state.gapM >= 20 ? "Farmer lost you… for now" : `Farmer ${state.gapM.toFixed(0)} m behind`);
     progressFillEl.style.width = `${Math.min(100, (state.distM / FINISH) * 100)}%`;
   }
 
   // -------------------------------------------------------------- render --
   function render() {
+    ctx.save();
+    if (state.shakeT > 0) {
+      const amp = 9 * (state.shakeT / 0.3);
+      ctx.translate((Math.random() - 0.5) * 2 * amp, (Math.random() - 0.5) * 1.4 * amp);
+    }
     const inMenu = state.mode === "menu";
     const scrollPx = inMenu ? state.timeS * 36 : state.distM * PPM;
     const stageMeters = inMenu ? 120 : Math.min(state.distM, FINISH - 1);
@@ -451,8 +500,9 @@
         }
       }
     } else {
-      // Menu diorama: a bale, a corn arc and a rack to hint at the game.
+      // Menu diorama: a bale, a barrel, a corn arc and a rack to hint at the game.
       S.drawObstacle(ctx, { type: "haybale", x: 760, groundY: GROUND_Y, timeS: state.timeS });
+      S.drawObstacle(ctx, { type: "barrel", x: 545, groundY: GROUND_Y, timeS: state.timeS });
       S.drawCorn(ctx, { x: 700, y: GROUND_Y - 120, golden: false, timeS: state.timeS });
       S.drawCorn(ctx, { x: 745, y: GROUND_Y - 148, golden: true, timeS: state.timeS });
       S.drawCorn(ctx, { x: 790, y: GROUND_Y - 120, golden: false, timeS: state.timeS });
@@ -460,10 +510,26 @@
       S.drawBush(ctx, { x: 120, groundY: GROUND_Y });
     }
 
+    // Danger streaks: when his hands are close, the world blurs past.
+    if (state.mode === "playing" && state.gapM < 6) {
+      ctx.strokeStyle = "rgba(255,255,255,0.20)";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const sy = 120 + ((i * 131 + state.timeS * 40) % 380);
+        const sx = VIEW_W + 150 - ((state.timeS * 1400 + i * 331) % (VIEW_W + 300));
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + 90, sy);
+      }
+      ctx.stroke();
+    }
+
     // The farmer, closing in from the left.
     const gapShown = state.mode === "over" && !state.escaped ? 0.4 : inMenu ? 13.5 : state.gapM;
     const farmerX = TURKEY_X - gapShown * PPM - 56;
     if (farmerX > -130) {
+      S.drawShadow(ctx, farmerX, GROUND_Y, 30, 0.26);
       S.drawFarmer(ctx, {
         x: farmerX,
         feetY: GROUND_Y,
@@ -472,7 +538,9 @@
       });
     }
 
-    // Gobbles herself.
+    // Gobbles herself, with a contact shadow that shrinks as she climbs.
+    const shScale = Math.max(0.35, 1 - state.py / 420);
+    S.drawShadow(ctx, TURKEY_X, GROUND_Y, 30 * shScale, 0.30 * shScale);
     const turkeyPose = {
       x: TURKEY_X,
       feetY: GROUND_Y - state.py,
@@ -481,6 +549,7 @@
       air: state.py > 0,
       invincible: state.invincibleT > 0,
       scared: gapShown < 7 || (state.mode === "over" && !state.escaped),
+      stretch: state.landT > 0 ? 0.84 : state.py > 0 && state.vy > 380 ? 1.09 : 1,
     };
     if (state.mode === "over" && !state.escaped) turkeyPose.duck = true;
     S.drawTurkey(ctx, turkeyPose);
@@ -488,7 +557,15 @@
     // Particles on top.
     for (const p of state.particles) {
       const a = 1 - p.life / p.maxLife;
-      if (p.kind === "feather") S.drawFeatherPuff(ctx, p.x, p.y, 9, a * 0.9);
+      if (p.kind === "confetti") {
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-5, -3, 10, 6);
+        ctx.restore();
+      } else if (p.kind === "feather") S.drawFeatherPuff(ctx, p.x, p.y, 9, a * 0.9);
       else if (p.kind === "spark") S.drawFeatherPuff(ctx, p.x, p.y, 4, a);
       else {
         ctx.fillStyle = `rgba(190,160,120,${a * 0.5})`;
@@ -497,6 +574,7 @@
         ctx.fill();
       }
     }
+    ctx.restore();
   }
 
   // ---------------------------------------------------------------- loop --
@@ -508,7 +586,10 @@
     lastT = t;
     state.timeS += dt;
     if (state.mode === "playing" && !state.photo) update(dt);
-    else if (state.mode === "over") state.overT += dt;
+    else if (state.mode === "over") {
+      state.overT += dt;
+      updateParticles(dt); // let the escape confetti rain behind the panel
+    }
     if (state.mode === "menu") {
       state.runPhase += dt * 14;
       state.farmerPhase += dt * 12;

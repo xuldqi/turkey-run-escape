@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/turkey-run-game-01/xuldqi/turkey-run-escape/rank.svg)](https://make.fun/bounty/turkey-run-game-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=turkey-run-game-01)
 [![reward](https://make.fun/badge/turkey-run-game-01/xuldqi/turkey-run-escape/reward.svg)](https://make.fun/bounty/turkey-run-game-01?utm_source=github&utm_medium=readme&utm_campaign=turkey-run-game-01)
 
-Gobble Run — The Great Turkey Escape. A Thanksgiving escape runner for the browser, written from scratch with zero dependencies: no engine, no assets, every sprite drawn in canvas paths and every sound synthesized live with WebAudio. Gobbles McFeather the turkey bolts from the farm the week before Thanksgiving: 1,500 metres of farmyard, cornfield and kitchen yard between her and the Wild Woods. Jump the hay bales, fences, pumpkins and preheated ovens; duck the knife racks and time the swinging carving knife; grab corn for points, graze obstacles for near-miss bonuses, and hide in bushes to shake the farmer off your tail. He surges every time you stumble — three lost feathers, or one grab, and it's dinner.
+Gobble Run — The Great Turkey Escape. A Thanksgiving escape runner for the browser, written from scratch with zero dependencies: no engine, no assets, every sprite drawn in canvas paths and every sound synthesized live with WebAudio. Gobbles McFeather the turkey bolts from the farm the week before Thanksgiving: 1,500 metres of farmyard, cornfield and kitchen yard between her and the Wild Woods. Jump the hay bales, fences, pumpkins, barrels and preheated ovens; duck the knife racks and low branches and time the swinging carving knife; grab corn for points, graze obstacles for near-miss bonuses, and hide in bushes to shake the farmer off your tail. He surges every time you stumble — three lost feathers, or one grab, and it's dinner.
 
 ## Run it
 
@@ -18,7 +18,7 @@ Requires Node.js 22.18 or later. `main.ts` is the hand-in entrypoint: it copies 
 ## How to play
 
 - **Space / ↑ / W / Click** — jump; press again mid-air to flap (double jump)
-- **↓ / S** — duck under knife racks and the swinging knife; in the air it drops you fast
+- **↓ / S** — duck under knife racks, low branches and the swinging knife; in the air it drops you fast
 - **P** — pause · **M** — mute · touch buttons appear on touch screens
 - Reach the Wild Woods gate at 1,500 m to escape. Score is distance + corn (25, golden 100) + near-miss bonuses (10) + an escape bonus of 500 plus 100 per feather left.
 
